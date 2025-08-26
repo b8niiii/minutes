@@ -1,0 +1,9 @@
+torch
+torchaudio
+whisperx
+pyannote.audio
+pydantic
+python-docx
+pandas
+tqdm
+openai
