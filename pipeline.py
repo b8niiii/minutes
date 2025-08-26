@@ -80,7 +80,10 @@ def extract_audio(video_path: str, wav_path: str) -> None:
 
 
 def transcribe_and_diarize(
-    wav_path: str, language: Optional[str], max_speakers: int
+    wav_path: str,
+    language: Optional[str],
+    max_speakers: int,
+    hf_token: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Transcribe and diarize an audio file using WhisperX.
 
@@ -88,6 +91,7 @@ def transcribe_and_diarize(
         wav_path: Path to the WAV audio file.
         language: Optional language code to force transcription language.
         max_speakers: Maximum number of speakers for diarization.
+        hf_token: Hugging Face access token for diarization models.
 
     Returns:
         Dictionary with a ``segments`` list describing speaker segments.
@@ -109,7 +113,9 @@ def transcribe_and_diarize(
         result["segments"], model_a, metadata, audio, device=device
     )
 
-    diarize_model = whisperx.DiarizationPipeline(use_auth_token=None, device=device)
+    diarize_model = whisperx.diarize.DiarizationPipeline(
+        use_auth_token=hf_token, device=device
+    )
     diarize_segments = diarize_model(audio, max_speakers=max_speakers)
     aligned = whisperx.assign_word_speakers(diarize_segments, aligned)
 
@@ -494,6 +500,7 @@ def main() -> None:
     parser.add_argument(
         "--model", default="gpt-4o", help="Text model for summarization"
     )
+    parser.add_argument("--hf-token", type=str, default=os.getenv("HF_TOKEN"))
     parser.add_argument("--output-dir", default="./out")
     args = parser.parse_args()
 
@@ -506,7 +513,9 @@ def main() -> None:
     if not args.audio:
         extract_audio(args.video, str(wav_path))
 
-    diarized = transcribe_and_diarize(str(wav_path), args.language, args.max_speakers)
+    diarized = transcribe_and_diarize(
+        str(wav_path), args.language, args.max_speakers, args.hf_token
+    )
     (out_dir / "transcript_diarized.json").write_text(
         json.dumps(diarized, indent=2)
     )
