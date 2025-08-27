@@ -135,11 +135,18 @@ def transcribe_and_diarize(
             compute_type=compute_type,
         )
 
-    asr_kwargs = {}
+    asr_kwargs: Dict[str, Any] = {}
     if language:
         asr_kwargs["language"] = language
-    asr_kwargs.update(dict(vad_filter=True))
-    result = model.transcribe(wav_path, **asr_kwargs)
+    asr_kwargs["vad_filter"] = True
+    try:
+        result = model.transcribe(wav_path, **asr_kwargs)
+    except TypeError:
+        logging.warning(
+            "Installed whisperx does not support 'vad_filter'; transcribing without it"
+        )
+        asr_kwargs.pop("vad_filter", None)
+        result = model.transcribe(wav_path, **asr_kwargs)
 
     audio = whisperx.load_audio(wav_path)
 
