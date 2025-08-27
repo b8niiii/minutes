@@ -166,6 +166,7 @@ def transcribe_and_diarize(
         aligned = {"segments": result["segments"]}
 
     if not no_diarization:
+
         try:
             diarize_model = whisperx.diarize.DiarizationPipeline(
                 use_auth_token=hf_token, device=device
