@@ -80,14 +80,30 @@ def extract_audio(video_path: str, wav_path: str) -> None:
 
 
 def transcribe_and_diarize(
-    wav_path: str, language: Optional[str], max_speakers: int
+    wav_path: str,
+    language: Optional[str],
+    max_speakers: int,
+    asr_model: str = "medium",
+    compute_type: str = "int8",
+    device: str = "cpu",
+    cpu_threads: Optional[int] = None,
+    skip_align: bool = False,
+    no_diarization: bool = False,
+    hf_token: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Transcribe and diarize an audio file using WhisperX.
+    """Transcribe and optionally diarize an audio file using WhisperX.
 
     Args:
         wav_path: Path to the WAV audio file.
         language: Optional language code to force transcription language.
         max_speakers: Maximum number of speakers for diarization.
+        asr_model: Whisper model size.
+        compute_type: faster-whisper compute precision.
+        device: Target device ("cpu" or "cuda" or "auto").
+        cpu_threads: Number of CPU threads to use for ASR.
+        skip_align: If True, skip word-level alignment for speed.
+        no_diarization: If True, skip speaker diarization.
+        hf_token: Optional HuggingFace token for diarization.
 
     Returns:
         Dictionary with a ``segments`` list describing speaker segments.
@@ -96,32 +112,49 @@ def transcribe_and_diarize(
     import torch  # type: ignore
     import whisperx  # type: ignore
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    logging.info("Loading WhisperX model on %s", device)
-    model = whisperx.load_model("large-v3", device=device)
-    result = model.transcribe(wav_path, language=language)
+    if device == "auto":
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    logging.info("Loading WhisperX model %s on %s (%s)", asr_model, device, compute_type)
+    model = whisperx.load_model(
+        asr_model, device=device, compute_type=compute_type, cpu_threads=cpu_threads
+    )
+
+    asr_kwargs = {}
+    if language:
+        asr_kwargs["language"] = language
+    asr_kwargs.update(dict(vad_filter=True))
+    result = model.transcribe(wav_path, **asr_kwargs)
 
     audio = whisperx.load_audio(wav_path)
-    model_a, metadata = whisperx.load_align_model(
-        language_code=result["language"], device=device
-    )
-    aligned = whisperx.align(
-        result["segments"], model_a, metadata, audio, device=device
-    )
 
-    diarize_model = whisperx.DiarizationPipeline(use_auth_token=None, device=device)
-    diarize_segments = diarize_model(audio, max_speakers=max_speakers)
-    aligned = whisperx.assign_word_speakers(diarize_segments, aligned)
+    if not skip_align:
+        model_a, metadata = whisperx.load_align_model(
+            language_code=result["language"], device=device
+        )
+        aligned = whisperx.align(
+            result["segments"], model_a, metadata, audio, device=device
+        )
+    else:
+        aligned = {"segments": result["segments"]}
 
-    segments = [
-        {
-            "start": float(seg["start"]),
-            "end": float(seg["end"]),
-            "speaker": seg["speaker"],
-            "text": seg["text"].strip(),
-        }
-        for seg in aligned["segments"]
-    ]
+    if not no_diarization:
+        diarize_model = whisperx.diarize.DiarizationPipeline(
+            use_auth_token=hf_token, device=device
+        )
+        diarize_segments = diarize_model(audio, max_speakers=max_speakers)
+        aligned = whisperx.assign_word_speakers(diarize_segments, aligned)
+
+    segments = []
+    for seg in aligned["segments"]:
+        segments.append(
+            {
+                "start": float(seg["start"]),
+                "end": float(seg["end"]),
+                "speaker": seg.get("speaker", "SPEAKER_00"),
+                "text": seg["text"].strip(),
+            }
+        )
     return {"segments": segments}
 
 
@@ -495,6 +528,13 @@ def main() -> None:
         "--model", default="gpt-4o", help="Text model for summarization"
     )
     parser.add_argument("--output-dir", default="./out")
+    parser.add_argument("--asr-model", default="medium", help="ASR model size: tiny/base/small/medium/large-v3")
+    parser.add_argument("--compute-type", default="int8", help="faster-whisper compute type on CPU: int8/float32")
+    parser.add_argument("--device", default="cpu", help="cpu or cuda")
+    parser.add_argument("--cpu-threads", type=int, default=os.cpu_count(), help="CPU threads for ASR")
+    parser.add_argument("--skip-align", action="store_true", help="Skip word-level alignment (faster)")
+    parser.add_argument("--no-diarization", action="store_true", help="Skip speaker diarization (much faster)")
+    parser.add_argument("--hf-token", type=str, default=os.getenv("HF_TOKEN"), help="HuggingFace token for pyannote")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(message)s")
@@ -506,7 +546,18 @@ def main() -> None:
     if not args.audio:
         extract_audio(args.video, str(wav_path))
 
-    diarized = transcribe_and_diarize(str(wav_path), args.language, args.max_speakers)
+    diarized = transcribe_and_diarize(
+        str(wav_path),
+        args.language,
+        args.max_speakers,
+        asr_model=args.asr_model,
+        compute_type=args.compute_type,
+        device=args.device,
+        cpu_threads=args.cpu_threads,
+        skip_align=args.skip_align,
+        no_diarization=args.no_diarization,
+        hf_token=args.hf_token,
+    )
     (out_dir / "transcript_diarized.json").write_text(
         json.dumps(diarized, indent=2)
     )
