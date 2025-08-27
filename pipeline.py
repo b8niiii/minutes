@@ -161,9 +161,19 @@ def transcribe_and_diarize(
         aligned = {"segments": result["segments"]}
 
     if not no_diarization:
-        diarize_model = whisperx.diarize.DiarizationPipeline(
-            use_auth_token=hf_token, device=device
-        )
+        if not hf_token:
+            raise RuntimeError(
+                "Speaker diarization requires a HuggingFace token. "
+                "Provide one via --hf-token or set HF_TOKEN, or run with --no-diarization."
+            )
+        try:
+            diarize_model = whisperx.diarize.DiarizationPipeline(
+                use_auth_token=hf_token, device=device
+            )
+        except Exception as exc:  # pragma: no cover - network/auth issues
+            raise RuntimeError(
+                "Failed to load diarization model; ensure the provided HuggingFace token has access to the required pipeline."
+            ) from exc
         diarize_segments = diarize_model(audio, max_speakers=max_speakers)
         aligned = whisperx.assign_word_speakers(diarize_segments, aligned)
 
