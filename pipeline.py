@@ -115,25 +115,24 @@ def transcribe_and_diarize(
     if device == "auto":
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
-
     logging.info(
         "Loading WhisperX model %s on %s (%s)", asr_model, device, compute_type
-
-    logging.info("Loading WhisperX model %s on %s (%s)", asr_model, device, compute_type)
-    model = whisperx.load_model(
-        asr_model, device=device, compute_type=compute_type, cpu_threads=cpu_threads
-
     )
     try:
         model = whisperx.load_model(
-            asr_model, device=device, compute_type=compute_type, cpu_threads=cpu_threads
+            asr_model,
+            device=device,
+            compute_type=compute_type,
+            cpu_threads=cpu_threads,
         )
     except TypeError:
         logging.warning(
             "Installed whisperx does not support 'cpu_threads'; loading without it"
         )
         model = whisperx.load_model(
-            asr_model, device=device, compute_type=compute_type
+            asr_model,
+            device=device,
+            compute_type=compute_type,
         )
 
     asr_kwargs = {}
