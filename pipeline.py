@@ -108,6 +108,11 @@ def transcribe_and_diarize(
     Returns:
         Dictionary with a ``segments`` list describing speaker segments.
     """
+    if not no_diarization and not hf_token:
+        raise RuntimeError(
+            "Speaker diarization requires a HuggingFace token. "
+            "Provide one via --hf-token or set HF_TOKEN, or run with --no-diarization."
+        )
 
     import torch  # type: ignore
     import whisperx  # type: ignore
@@ -161,9 +166,14 @@ def transcribe_and_diarize(
         aligned = {"segments": result["segments"]}
 
     if not no_diarization:
-        diarize_model = whisperx.diarize.DiarizationPipeline(
-            use_auth_token=hf_token, device=device
-        )
+        try:
+            diarize_model = whisperx.diarize.DiarizationPipeline(
+                use_auth_token=hf_token, device=device
+            )
+        except Exception as exc:  # pragma: no cover - network/auth issues
+            raise RuntimeError(
+                "Failed to load diarization model; ensure the provided HuggingFace token has access to the required pipeline."
+            ) from exc
         diarize_segments = diarize_model(audio, max_speakers=max_speakers)
         aligned = whisperx.assign_word_speakers(diarize_segments, aligned)
 
@@ -560,6 +570,12 @@ def main() -> None:
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(message)s")
+
+    if not args.no_diarization and not args.hf_token:
+        raise RuntimeError(
+            "Speaker diarization requires a HuggingFace token. "
+            "Provide one via --hf-token or set HF_TOKEN, or run with --no-diarization."
+        )
 
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
